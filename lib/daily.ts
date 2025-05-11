@@ -1,6 +1,9 @@
-export const createDailyRoom = async () => {
+export const createDailyRoom = async (expiryMinutes = 5) => {
   try {
     console.log("Creating Daily room with API key:", process.env.DAILY_API_KEY?.substring(0, 5) + "...")
+
+    // Calculate expiration time in seconds from now
+    const expirySeconds = Math.floor(Date.now() / 1000) + expiryMinutes * 60
 
     const res = await fetch("https://api.daily.co/v1/rooms", {
       method: "POST",
@@ -10,11 +13,13 @@ export const createDailyRoom = async () => {
       },
       body: JSON.stringify({
         properties: {
-          exp: Math.floor(Date.now() / 1000) + 3600, // expires in 1 hour (increased from 2 min)
+          exp: expirySeconds, // Room will expire after specified minutes
           enable_chat: true,
           enable_screenshare: false,
-          start_video_off: false, // Ensure video starts on
-          start_audio_off: false, // Ensure audio starts on
+          start_video_off: false,
+          start_audio_off: false,
+          eject_at_room_exp: true, // This will kick users out when the room expires
+          //eject_after_elapsed: expiryMinutes * 60, // Alternative: kick users out after this many seconds
         },
       }),
     })

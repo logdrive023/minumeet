@@ -27,6 +27,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [scriptLoaded, setScriptLoaded] = useState(false)
   const [debugInfo, setDebugInfo] = useState<string>("")
+  const [bothParticipantsJoined, setBothParticipantsJoined] = useState(false)
   const supabase = getSupabaseClient()
 
   // Load Daily.js
@@ -73,7 +74,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
             if (callFrameRef.current) callFrameRef.current.leave()
             router.push(`/feedback/${callId}`)
           }
-        }
+        },
       )
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -86,6 +87,27 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
       router.push(`/feedback/${callId}`)
     } catch (error) {
       console.error("Error ending call:", error)
+    }
+  }
+
+  // Function to check if both participants have joined
+  const checkParticipants = (callFrame: any) => {
+    if (!callFrame) return
+
+    const participants = callFrame.participants()
+    console.log("Current participants:", participants)
+
+    // Count participants that are actually in the call (not just loading)
+    const activeParticipants = Object.values(participants).filter((p: any) => p.session_id && p.video)
+
+    console.log("Active participants:", activeParticipants.length)
+
+    // Set bothParticipantsJoined to true if we have at least 2 participants
+    const bothJoined = activeParticipants.length >= 2
+    setBothParticipantsJoined(bothJoined)
+
+    if (bothJoined) {
+      console.log("Both participants have joined!")
     }
   }
 
@@ -122,6 +144,22 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
       callFrame.on("joined-meeting", () => {
         console.log("Joined meeting!")
         setIsLoading(false)
+
+        // Check if both participants have joined
+        checkParticipants(callFrame)
+      })
+
+      // This event fires when participants join or leave
+      callFrame.on("participant-joined", () => {
+        console.log("Participant joined!")
+        // Check if both participants have joined
+        checkParticipants(callFrame)
+      })
+
+      callFrame.on("participant-left", () => {
+        console.log("Participant left!")
+        // Check if we still have both participants
+        checkParticipants(callFrame)
       })
 
       callFrame.on("error", (e: any) => {
@@ -214,7 +252,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
         </div>
       )}
 
-      <VideoTimer callId={callId} onEndCall={handleEndCall} />
+      <VideoTimer callId={callId} onEndCall={handleEndCall} bothParticipantsJoined={bothParticipantsJoined} />
     </div>
   )
 }
