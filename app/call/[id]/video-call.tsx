@@ -51,7 +51,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
       setTimeout(() => {
         if (window.DailyIframe) setScriptLoaded(true)
         else setError("Failed to initialize Daily.co. Please refresh the page.")
-      }, 1000)
+      }, 3000)
     }
     script.onerror = () => setError("Failed to load Daily.co script.")
     document.body.appendChild(script)
