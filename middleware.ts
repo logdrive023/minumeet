@@ -11,7 +11,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getSession()
 
   if (
-    ["/", "/login", "/signup", "/auth"].some(path =>
+    ["/", "/login", "/signup", "/auth", "/terms"].some(path =>
       request.nextUrl.pathname.startsWith(path)
     )
   ) {

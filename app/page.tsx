@@ -16,8 +16,8 @@ export default async function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-b from-pink-500 to-purple-600">
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">Video Dating</h1>
-        <p className="text-white text-opacity-80">Meet new people through 1-minute video calls</p>
+        <h1 className="text-4xl font-bold text-white mb-2">MenuMeet</h1>
+        <p className="text-white text-opacity-80">Conheça novas pessoas em chamadas de vídeo de 1 minuto</p>
       </div>
       <AuthForm />
     </main>

@@ -2,10 +2,11 @@ import { createServerClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Video, Users, Settings, Database, Camera } from "lucide-react"
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Users, Settings, Database, Camera, LogOut, Sliders } from "lucide-react"
 import SetupDbButton from "./setup-db-button"
 import CameraDebug from "@/components/camera-debug"
+import { DynamicDatingText } from "@/components/dynamic-dating-text"
 
 export default async function HomePage() {
   const supabase = createServerClient()
@@ -25,108 +26,184 @@ export default async function HomePage() {
     .eq("id", session.user.id)
     .single()
 
-  if (userError && userError.code !== "PGRST116") {
-    console.error("Error fetching user data:", userError)
+  // Fallback to auth metadata if user data is not found in the users table
+  let userName = "User"
+
+  if (userData?.name) {
+    userName = userData.name
+  } else if (session.user.user_metadata?.name) {
+    userName = session.user.user_metadata.name
+  } else if (session.user.user_metadata?.full_name) {
+    userName = session.user.user_metadata.full_name
+  } else if (session.user.email) {
+    userName = session.user.email.split("@")[0]
   }
 
   // Get matches count with error handling
   let matchesCount = 0
-  try {
-    const { count, error } = await supabase
-      .from("matches")
-      .select("*", { count: "exact", head: true })
-      .or(`user1_id.eq.${session.user.id},user2_id.eq.${session.user.id}`)
 
-    if (!error) {
-      matchesCount = count || 0
+  try {
+    const { data: matches, error } = await supabase
+      .from("matches")
+      .select("id, user1_id, user2_id")
+      .or(`user1_id.eq.${session.user.id},user2_id.eq.${session.user.id}`)
+      .eq("mutual", true)
+
+    if (matches && !error) {
+      const uniqueMatchMap = new Map()
+
+      for (const match of matches) {
+        const ids = [match.user1_id, match.user2_id].sort().join("-")
+        uniqueMatchMap.set(ids, true)
+      }
+
+      matchesCount = uniqueMatchMap.size
     }
   } catch (error) {
     console.error("Error fetching matches count:", error)
   }
 
+
+  // Text options for the dynamic dating card
+  const titleOptions = [
+    "Bora conversar?",
+    "Conheça alguém novo",
+    "Comece uma conexão",
+    'Seu próximo match começa com um "oi"',
+    "Um minuto, uma chance",
+    "Encontre sua próxima conexão",
+  ]
+
+  const subtitleOptions = [
+    "Encontre alguém legal para um papo agora mesmo",
+    "Troque ideias, histórias e quem sabe… algo mais?",
+    "Converse por 1 minuto e veja no que dá",
+    "Dê o primeiro passo agora",
+    "Descubra quem te espera do outro lado",
+    "Tudo começa com uma boa conversa",
+  ]
+
   return (
-    <main className="flex min-h-screen flex-col items-center p-4 bg-gradient-to-b from-pink-500 to-purple-600">
+    <main className="flex min-h-screen flex-col items-center p-4 bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-600">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8 mt-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Welcome, {userData?.name || "User"}</h1>
-          <p className="text-white text-opacity-80">Ready to meet someone new?</p>
+        <div className="text-center mb-8 mt-8 relative">
+          <h1 className="text-3xl font-bold text-white mb-2">Bem vindo, {userName}</h1>
+          <p className="text-white text-opacity-80">Pronto para conhecer alguém novo?</p>
+
+          <Link href="/direct-login" className="absolute top-0 right-0">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
+              <LogOut className="h-5 w-5" />
+              <span className="sr-only">Sair</span>
+            </Button>
+          </Link>
         </div>
 
         <div className="grid gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Video className="h-5 w-5" />
-                Start Dating
-              </CardTitle>
-              <CardDescription>Find someone to talk to right now</CardDescription>
+          <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">
+            <CardHeader className="pb-2">
+              <DynamicDatingText
+                titleOptions={titleOptions}
+                subtitleOptions={subtitleOptions}
+                displayDuration={10000}
+                transitionDuration={800}
+              />
             </CardHeader>
-            <CardFooter>
+            <CardFooter className="pt-2">
               <Link href="/matchmaking" className="w-full">
-                <Button className="w-full bg-gradient-to-r from-pink-500 to-purple-600">Start Video Date</Button>
+                <Button className="w-full bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 transition-all duration-300">
+                  1 minuto pra conquistar 💘
+                </Button>
               </Link>
             </CardFooter>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Your Matches
+          <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Users className="h-5 w-5 text-pink-500" />
+                Seus Matches
               </CardTitle>
-              <CardDescription>You have {matchesCount} matches</CardDescription>
+              <CardDescription>Você tem {matchesCount} matches</CardDescription>
             </CardHeader>
-            <CardFooter>
+            <CardFooter className="pt-2">
               <Link href="/matches" className="w-full">
-                <Button variant="outline" className="w-full">
-                  View Matches
+                <Button variant="outline" className="w-full hover:bg-pink-50 transition-all duration-300">
+                  Ver Matches
                 </Button>
               </Link>
             </CardFooter>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Profile Settings
-              </CardTitle>
-              <CardDescription>Update your profile information</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <Link href="/profile" className="w-full">
-                <Button variant="outline" className="w-full">
-                  Edit Profile
-                </Button>
-              </Link>
-            </CardFooter>
-          </Card>
+          <div className="grid grid-cols-2 gap-4">
+            <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Settings className="h-5 w-5 text-pink-500" />
+                  Perfil
+                </CardTitle>
+                <CardDescription>Atualize seu perfil</CardDescription>
+              </CardHeader>
+              <CardFooter className="pt-2">
+                <Link href="/profile" className="w-full">
+                  <Button variant="outline" className="w-full hover:bg-pink-50 transition-all duration-300">
+                    Editar Perfil
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Database Setup
-              </CardTitle>
-              <CardDescription>Set up required database tables</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <SetupDbButton />
-            </CardFooter>
-          </Card>
+            <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Sliders className="h-5 w-5 text-pink-500" />
+                  Configurações
+                </CardTitle>
+                <CardDescription>Preferências</CardDescription>
+              </CardHeader>
+              <CardFooter className="pt-2">
+                <Link href="/settings" className="w-full">
+                  <Button variant="outline" className="w-full hover:bg-pink-50 transition-all duration-300">
+                    Configurar
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Camera className="h-5 w-5" />
-                Camera Test
-              </CardTitle>
-              <CardDescription>Test your camera and microphone</CardDescription>
-            </CardHeader>
-            <CardFooter className="block">
-              <CameraDebug />
-            </CardFooter>
-          </Card>
+          <div className="grid grid-cols-1 sm:grid-cols-1 gap-4 mt-2">
+            {/*<Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Database className="h-5 w-5 text-pink-500" />
+                  Database Setup
+                </CardTitle>
+                <CardDescription>Set up required tables</CardDescription>
+              </CardHeader>
+              <CardFooter className="pt-2">
+                <SetupDbButton />
+              </CardFooter>
+            </Card>*/}
+
+            <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Camera className="h-5 w-5 text-pink-500" />
+                  Teste de Câmera
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 pb-4 px-4">
+                <CameraDebug />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/*<div className="mt-6 text-center">
+            <Link href="/admin/reports">
+              <Button variant="ghost" size="sm" className="text-white hover:bg-white/20">
+                Administração de Denúncias
+              </Button>
+            </Link>
+          </div>*/}
         </div>
       </div>
     </main>

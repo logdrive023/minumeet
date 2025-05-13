@@ -16,6 +16,7 @@ interface VideoCallProps {
 declare global {
   interface Window {
     DailyIframe: any
+    callFrame: any
   }
 }
 
@@ -26,11 +27,9 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [scriptLoaded, setScriptLoaded] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<string>("")
   const [bothParticipantsJoined, setBothParticipantsJoined] = useState(false)
   const supabase = getSupabaseClient()
 
-  // Load Daily.js
   useEffect(() => {
     if (document.querySelector('script[src="https://unpkg.com/@daily-co/daily-js"]')) {
       if (window.DailyIframe) setScriptLoaded(true)
@@ -38,7 +37,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
         const checkTimer = setTimeout(() => {
           if (window.DailyIframe) setScriptLoaded(true)
           else setError("Failed to load Daily.co script. Please refresh the page.")
-        }, 2000)
+        }, 6000)
         return () => clearTimeout(checkTimer)
       }
       return
@@ -57,7 +56,6 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
     document.body.appendChild(script)
   }, [])
 
-  // Supabase subscription to end call
   useEffect(() => {
     const channel = supabase
       .channel(`call_${callId}`)
@@ -74,7 +72,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
             if (callFrameRef.current) callFrameRef.current.leave()
             router.push(`/feedback/${callId}`)
           }
-        },
+        }
       )
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -90,33 +88,18 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
     }
   }
 
-  // Function to check if both participants have joined
   const checkParticipants = (callFrame: any) => {
     if (!callFrame) return
-
     const participants = callFrame.participants()
-    console.log("Current participants:", participants)
-
-    // Count participants that are actually in the call (not just loading)
     const activeParticipants = Object.values(participants).filter((p: any) => p.session_id && p.video)
-
-    console.log("Active participants:", activeParticipants.length)
-
-    // Set bothParticipantsJoined to true if we have at least 2 participants
-    const bothJoined = activeParticipants.length >= 2
-    setBothParticipantsJoined(bothJoined)
-
-    if (bothJoined) {
-      console.log("Both participants have joined!")
-    }
+    setBothParticipantsJoined(activeParticipants.length >= 2)
   }
 
-  // Initialize call
   useEffect(() => {
     if (!scriptLoaded || !callWrapperRef.current) return
 
     const initTimer = setTimeout(() => {
-      if (!window.DailyIframe) {
+      if (!window.DailyIframe?.createFrame) {
         setError("Video call library not loaded properly.")
         setIsLoading(false)
         return
@@ -136,65 +119,69 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
         },
       })
 
-      // Register events BEFORE assigning to ref
-      callFrame.on("joining-meeting", () => {
-        console.log("Joining meeting...")
-      })
+      let joined = false
+      let waitedMinTime = false
+
+      const finalizeJoin = () => {
+        if (joined && waitedMinTime) {
+          setIsLoading(false)
+          checkParticipants(callFrame)
+        }
+      }
 
       callFrame.on("joined-meeting", () => {
-        console.log("Joined meeting!")
-        setIsLoading(false)
-
-        // Check if both participants have joined
-        checkParticipants(callFrame)
+        joined = true
+        finalizeJoin()
       })
 
-      // This event fires when participants join or leave
-      callFrame.on("participant-joined", () => {
-        console.log("Participant joined!")
-        // Check if both participants have joined
-        checkParticipants(callFrame)
-      })
+      setTimeout(() => {
+        waitedMinTime = true
+        finalizeJoin()
+      }, 5000)
 
-      callFrame.on("participant-left", () => {
-        console.log("Participant left!")
-        // Check if we still have both participants
-        checkParticipants(callFrame)
-      })
-
+      callFrame.on("participant-joined", () => checkParticipants(callFrame))
+      callFrame.on("participant-left", () => checkParticipants(callFrame))
       callFrame.on("error", (e: any) => {
-        console.error("Daily.co error:", e)
-        setError(`Video call error: ${e?.errorMsg || "Unknown error"}`)
+        console.error("🟥 Daily.co error", e)
+        setError(`Erro da chamada: ${e?.errorMsg || e?.status || e?.errorType || "Erro desconhecido"}`)
         setIsLoading(false)
       })
-
       callFrame.on("camera-error", (e: any) => {
-        console.error("Camera error:", e)
         setError(`Camera error: ${e?.errorMsg || "Could not access camera"}`)
         setIsLoading(false)
       })
-
-      callFrame.on("left-meeting", async () => {
-        await handleEndCall()
-      })
+      callFrame.on("left-meeting", async () => await handleEndCall())
 
       callFrameRef.current = callFrame
-      const cleanRoomUrl = roomUrl.trim()
-      callFrame.join({ url: cleanRoomUrl })
+      window.callFrame = callFrame
 
-      // Fallback timeout in case "joined-meeting" never fires
+      if (!roomUrl || !roomUrl.startsWith("https://")) {
+        setError("A URL da sala de chamada está inválida ou não foi fornecida.")
+        setIsLoading(false)
+        return
+      }
+
+      const cleanRoomUrl = roomUrl.trim()
+
+      // Espera 2 segundos antes de tentar entrar na sala
+      setTimeout(() => {
+        callFrame.join({ url: cleanRoomUrl })
+      }, 2000)
+
+
       setTimeout(() => {
         if (isLoading) {
           console.warn("Timeout fallback — forcing end of loading")
           setIsLoading(false)
         }
       }, 15000)
-    }, 1000)
+    }, 4000)
 
     return () => {
       clearTimeout(initTimer)
       if (callFrameRef.current) {
         callFrameRef.current.destroy()
+        window.callFrame = null
       }
     }
   }, [roomUrl, callId, router, scriptLoaded])
@@ -203,7 +190,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
     try {
       await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       window.location.reload()
-    } catch (err) {
+    } catch {
       setError("Could not access camera or microphone. Check browser permissions.")
     }
   }
@@ -214,6 +201,7 @@ export default function VideoCall({ callId, roomUrl, userId }: VideoCallProps) {
     if (callFrameRef.current) {
       callFrameRef.current.destroy()
       callFrameRef.current = null
+      window.callFrame = null
     }
     window.location.reload()
   }

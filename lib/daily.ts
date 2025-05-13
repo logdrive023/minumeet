@@ -3,7 +3,7 @@ export const createDailyRoom = async (expiryMinutes = 5) => {
     console.log("Creating Daily room with API key:", process.env.DAILY_API_KEY?.substring(0, 5) + "...")
 
     // Calculate expiration time in seconds from now
-    const expirySeconds = Math.floor(Date.now() / 1000) + expiryMinutes * 60
+    const expirySeconds = Math.floor(Date.now() / 1000) + 10 * 60 // 10 minutos
 
     const res = await fetch("https://api.daily.co/v1/rooms", {
       method: "POST",

@@ -57,35 +57,96 @@ export default function JoinQueue({ userId }: { userId: string }) {
     }
   }
 
-  // Check for matches periodically
+  // Check if user is already in an active call
   useEffect(() => {
-    if (!isInQueue || tablesExist !== true) return
+    if (tablesExist !== true) return
 
-    const checkForMatch = async () => {
+    const checkActiveCall = async () => {
       try {
-        const { data, error } = await supabase
+        const { data: activeCall, error } = await supabase
           .from("calls")
           .select("id, room_url")
           .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
           .is("end_time", null)
           .order("created_at", { ascending: false })
           .limit(1)
-          .single()
+          .maybeSingle()
 
-        if (error && error.code !== "PGRST116") throw error
-
-        if (data) {
-          // Found a match, redirect to the call
-          router.push(`/call/${data.id}?room=${encodeURIComponent(data.room_url)}`)
+        if (error) {
+          console.error("Error checking active call:", error)
+          return
         }
+
+        if (activeCall) {
+          console.log("User already in active call:", activeCall)
+          // Redirect to the active call
+          router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+        }
+      } catch (err) {
+        console.error("Exception checking active call:", err)
+      }
+    }
+
+    checkActiveCall()
+  }, [userId, router, supabase, tablesExist])
+
+  // Check for matches periodically
+  useEffect(() => {
+    if (!isInQueue || tablesExist !== true) return
+
+    const checkForMatch = async () => {
+      try {
+        // Verifica se usuário foi removido da fila
+        const { data: stillWaiting } = await supabase
+          .from("waiting_users")
+          .select("user_id")
+          .eq("user_id", userId)
+          .maybeSingle()
+
+        // Se não está mais esperando, verifica se caiu em uma call
+        if (!stillWaiting) {
+          const { data: activeCall } = await supabase
+            .from("calls")
+            .select("id, room_url")
+            .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+            .is("end_time", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (activeCall) {
+            router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+            return
+          }
+        }
+
+        // Dispara o matchmaking APENAS se ainda está esperando
+        const response = await fetch("/api/matchmaking", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userId }),
+        })
+
+        if (!response.ok) throw new Error(`Matchmaking API error: ${response.status}`)
+
+        const data = await response.json()
+
+        // Só redireciona se o backend sinalizou match de verdade
+        if (data.status === "matched") {
+          router.push(`/call/${data.callId}?room=${encodeURIComponent(data.roomUrl)}`)
+        }
+
       } catch (error) {
-        // No match found yet, continue waiting
+        console.error("Erro ao buscar match:", error)
       }
     }
 
     const interval = setInterval(checkForMatch, 3000)
     return () => clearInterval(interval)
   }, [isInQueue, userId, router, supabase, tablesExist])
+
 
   const joinQueue = async () => {
     if (tablesExist !== true) {
@@ -109,6 +170,22 @@ export default function JoinQueue({ userId }: { userId: string }) {
         if (insertError) throw insertError
       }
 
+      // Check if user is already in an active call
+      const { data: activeCall } = await supabase
+        .from("calls")
+        .select("id, room_url")
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+        .is("end_time", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (activeCall) {
+        // User already in active call, redirect
+        router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+        return
+      }
+
       // Now try to add to waiting_users
       const { error: joinError } = await supabase.from("waiting_users").upsert({ user_id: userId })
 
@@ -122,18 +199,18 @@ export default function JoinQueue({ userId }: { userId: string }) {
       setIsInQueue(true)
 
       // Trigger the matchmaking function
-      try {
-        await fetch("/api/matchmaking", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ userId }),
-        })
-      } catch (fetchError) {
-        console.error("Error triggering matchmaking:", fetchError)
-        // Continue anyway, as the polling will still work
-      }
+       try {
+         await fetch("/api/matchmaking", {
+           method: "POST",
+           headers: {
+             "Content-Type": "application/json",
+           },
+           body: JSON.stringify({ userId }),
+         })
+       } catch (fetchError) {
+         console.error("Error triggering matchmaking:", fetchError)
+         // Continue anyway, as the polling will still work
+       }
     } catch (error: any) {
       setError(error.message || "Error joining queue")
       setIsInQueue(false)
@@ -312,7 +389,7 @@ SELECT create_tables_if_not_exist();`}
           disabled={isJoining}
           className="bg-white text-pink-600 hover:bg-gray-100"
         >
-          Cancel
+          Cancelar
         </Button>
       </div>
     )
@@ -320,16 +397,16 @@ SELECT create_tables_if_not_exist();`}
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-      <h1 className="text-3xl font-bold text-white mb-2">Ready to Meet Someone?</h1>
+      <h1 className="text-3xl font-bold text-white mb-2">Pronto para conhecer alguém?</h1>
       <p className="text-white text-opacity-80 max-w-md">
-        Click the button below to join the queue and get matched with someone for a 1-minute video call.
+        Clique no botão abaixo para entrar na fila e ser pareado com alguém para uma videochamada de 1 minuto.
       </p>
       {error && <p className="text-red-300">{error}</p>}
       <Button onClick={joinQueue} disabled={isJoining} size="lg" className="bg-white text-pink-600 hover:bg-gray-100">
-        {isJoining ? "Joining..." : "Join Queue"}
+        {isJoining ? "Juntando-se..." : "Entrar na fila"}
       </Button>
       <Button variant="ghost" onClick={() => router.push("/home")} className="text-white hover:bg-white/10">
-        Go Back
+        Voltar
       </Button>
     </div>
   )

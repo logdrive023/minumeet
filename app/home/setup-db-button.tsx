@@ -36,20 +36,24 @@ export default function SetupDbButton() {
   return (
     <div className="w-full space-y-2">
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="py-2">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
       {success && (
-        <Alert className="bg-green-50 border-green-200">
+        <Alert className="bg-green-50 border-green-200 py-2">
           <CheckCircle className="h-4 w-4 text-green-500" />
           <AlertDescription className="text-green-800">Database setup completed successfully!</AlertDescription>
         </Alert>
       )}
 
-      <Button onClick={setupDatabase} disabled={loading} className="w-full" variant="outline">
+      <Button
+        onClick={setupDatabase}
+        disabled={loading}
+        className="w-full bg-white hover:bg-gray-100 text-pink-600 transition-all duration-300"
+      >
         {loading ? "Setting up..." : "Setup Database"}
       </Button>
     </div>

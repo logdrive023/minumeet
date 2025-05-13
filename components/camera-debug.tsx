@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default function CameraDebug() {
-  const [cameraStatus, setCameraStatus] = useState<string>("Not checked")
-  const [micStatus, setMicStatus] = useState<string>("Not checked")
+  const [cameraStatus, setCameraStatus] = useState<string>("Não verificado")
+  const [micStatus, setMicStatus] = useState<string>("Não verificado")
   const videoRef = useRef<HTMLVideoElement>(null)
   const [showPreview, setShowPreview] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
@@ -61,39 +60,43 @@ export default function CameraDebug() {
   }, [])
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>Camera & Microphone Test</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm font-medium mb-1">Camera:</p>
-            <p className="text-sm">{cameraStatus}</p>
-          </div>
-          <div>
-            <p className="text-sm font-medium mb-1">Microphone:</p>
-            <p className="text-sm">{micStatus}</p>
-          </div>
+    <div className="w-full space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-gray-50 p-2 rounded text-center">
+          <p className="text-xs font-medium mb-1">Câmera:</p>
+          <p className="text-sm">{cameraStatus}</p>
         </div>
+        <div className="bg-gray-50 p-2 rounded text-center">
+          <p className="text-xs font-medium mb-1">Microfone:</p>
+          <p className="text-sm">{micStatus}</p>
+        </div>
+      </div>
 
+      {showPreview && (
+        <div className="relative aspect-video bg-gray-100 rounded-md overflow-hidden">
+          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 w-full">
+        <Button
+          onClick={checkPermissions}
+          size="sm"
+          className="w-full bg-white hover:bg-gray-100 text-pink-600 transition-all duration-300"
+        >
+          {showPreview ? "Verifique novamente a câmera" : "Verifique a câmera"}
+        </Button>
         {showPreview && (
-          <div className="relative aspect-video bg-gray-100 rounded-md overflow-hidden">
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <Button onClick={checkPermissions} className="flex-1">
-            {showPreview ? "Recheck Permissions" : "Check Permissions"}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={stopStream}
+            className="w-full hover:bg-pink-50 transition-all duration-300"
+          >
+            Parar Câmera 
           </Button>
-          {showPreview && (
-            <Button variant="outline" onClick={stopStream}>
-              Stop Camera
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        )}
+      </div>
+    </div>
   )
 }

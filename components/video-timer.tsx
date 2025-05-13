@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
+import { getSupabaseClient } from "@/lib/supabase/client"
 
 interface VideoTimerProps {
   callId: string
@@ -57,22 +58,91 @@ export default function VideoTimer({
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`
   }
 
-  const handleEndCall = () => {
-    if (onEndCall) {
-      onEndCall()
-    } else {
-      router.push(`/feedback/${callId}`)
+  const handleEndCall = async () => {
+    try {
+      // 1. Obter informações da chamada do banco de dados
+      const supabase = getSupabaseClient()
+      const { data: callData, error: callError } = await supabase
+        .from("calls")
+        .select("room_url")
+        .eq("id", callId)
+        .single()
+
+      if (callError) {
+        console.error("Erro ao buscar informações da chamada:", callError)
+        throw callError
+      }
+
+      // 2. Extrair o nome da sala do URL
+      const roomName = callData.room_url.split("/").pop()
+
+      // 3. Encerrar a sala no Daily.co
+      if (roomName) {
+        try {
+          // Tentar encerrar a sala via API do Daily.co
+          const response = await fetch(`/api/end-daily-room`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ roomName }),
+          })
+
+          if (!response.ok) {
+            console.warn("Não foi possível encerrar a sala via API:", await response.text())
+          }
+        } catch (apiError) {
+          console.error("Erro ao chamar API para encerrar sala:", apiError)
+          // Continuar mesmo se a API falhar
+        }
+      }
+
+      // 4. Encerrar a chamada no banco de dados
+      await supabase.from("calls").update({ end_time: new Date().toISOString() }).eq("id", callId)
+
+      // 5. Encerrar a chamada localmente
+      if (window.DailyIframe && window.callFrame) {
+        try {
+          window.callFrame.leave()
+          window.callFrame.destroy()
+        } catch (dailyError) {
+          console.error("Erro ao encerrar chamada no cliente:", dailyError)
+        }
+      }
+
+      // 6. Redirecionar para a página de feedback
+      if (onEndCall) {
+        onEndCall()
+      } else {
+        router.push(`/feedback/${callId}`)
+      }
+    } catch (error) {
+      console.error("Erro ao encerrar chamada:", error)
+      // Em caso de erro, ainda tentamos redirecionar o usuário
+      if (onEndCall) {
+        onEndCall()
+      } else {
+        router.push(`/feedback/${callId}`)
+      }
     }
   }
 
   return (
     <Card className="absolute top-4 right-4 bg-opacity-80 bg-black text-white">
       <CardContent className="p-3 flex items-center gap-3">
-        <div className="text-xl font-bold">{!timerActive ? "Waiting..." : formatTime(timeLeft)}</div>
+        <div className="text-xl font-bold">{!timerActive ? "Esperando..." : formatTime(timeLeft)}</div>
         <Button variant="destructive" size="sm" onClick={handleEndCall}>
-          End Call
+          Encerrar Chamada
         </Button>
       </CardContent>
     </Card>
   )
+}
+
+// Adicionar declaração para o objeto global
+declare global {
+  interface Window {
+    DailyIframe: any
+    callFrame: any
+  }
 }

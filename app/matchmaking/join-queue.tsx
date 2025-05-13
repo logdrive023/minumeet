@@ -12,91 +12,52 @@ import Link from "next/link"
 export default function JoinQueue({ userId }: { userId: string }) {
   const [isJoining, setIsJoining] = useState(false)
   const [isInQueue, setIsInQueue] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tablesExist, setTablesExist] = useState<boolean | null>(null) // null means we haven't checked yet
+  const [tablesExist, setTablesExist] = useState<boolean | null>(null)
+  const [matchFoundAt, setMatchFoundAt] = useState<Date | null>(null)
   const router = useRouter()
   const supabase = getSupabaseClient()
 
-  // Check if tables exist using a different approach
+  // Verifica existência das tabelas
   useEffect(() => {
-    const checkTablesExist = async () => {
+    const checkTables = async () => {
       try {
-        // Try to query the users table first (which should exist if the user is logged in)
-        const { error: usersError } = await supabase.from("users").select("id").limit(1)
-
-        if (usersError) {
-          console.log("Users table error:", usersError.message)
-          setTablesExist(false)
-          return
-        }
-
-        // If we get here, at least the users table exists
-        // Let's create the other tables if they don't exist
-        await createRequiredTables()
-
-        // Set tables as existing
+        const { error } = await supabase.from("users").select("id").limit(1)
+        if (error) return setTablesExist(false)
+        await supabase.rpc("create_tables_if_not_exist")
         setTablesExist(true)
-      } catch (err: any) {
-        console.error("Exception checking tables:", err)
+      } catch {
         setTablesExist(false)
       }
     }
-
-    checkTablesExist()
+    checkTables()
   }, [supabase])
 
-  // Function to create required tables
-  const createRequiredTables = async () => {
-    try {
-      // Create waiting_users table if it doesn't exist
-      await supabase.rpc("create_tables_if_not_exist")
-      return true
-    } catch (error) {
-      console.error("Error creating tables:", error)
-      return false
-    }
-  }
-
-  // Check if user is already in an active call
+  // Verifica se usuário já está na fila
   useEffect(() => {
     if (tablesExist !== true) return
 
-    const checkActiveCall = async () => {
-      try {
-        const { data: activeCall, error } = await supabase
-          .from("calls")
-          .select("id, room_url")
-          .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
-          .is("end_time", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
+    const check = async () => {
+      const { data } = await supabase
+        .from("waiting_users")
+        .select("user_id")
+        .eq("user_id", userId)
+        .maybeSingle()
 
-        if (error) {
-          console.error("Error checking active call:", error)
-          return
-        }
-
-        if (activeCall) {
-          console.log("User already in active call:", activeCall)
-          // Redirect to the active call
-          router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
-        }
-      } catch (err) {
-        console.error("Exception checking active call:", err)
-      }
+      setIsInQueue(Boolean(data))
     }
 
-    checkActiveCall()
-  }, [userId, router, supabase, tablesExist])
+    check()
+  }, [tablesExist, supabase, userId])
 
-  // Check for matches periodically
+  // Polling para matchmaking
   useEffect(() => {
     if (!isInQueue || tablesExist !== true) return
 
-    const checkForMatch = async () => {
+    const interval = setInterval(async () => {
       try {
-        // First check if user is still in waiting queue
+        // Verifica se usuário ainda está na fila
         const { data: stillWaiting } = await supabase
           .from("waiting_users")
           .select("user_id")
@@ -104,8 +65,6 @@ export default function JoinQueue({ userId }: { userId: string }) {
           .maybeSingle()
 
         if (!stillWaiting) {
-          // User was removed from waiting queue, likely matched
-          // Check for active call
           const { data: activeCall } = await supabase
             .from("calls")
             .select("id, room_url")
@@ -116,44 +75,49 @@ export default function JoinQueue({ userId }: { userId: string }) {
             .maybeSingle()
 
           if (activeCall) {
-            // Found a match, redirect to the call
-            router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+            const now = new Date()
+            const waited = matchFoundAt ? now.getTime() - matchFoundAt.getTime() : 0
+            const MIN_DELAY = 5000
+
+            if (waited >= MIN_DELAY) {
+              router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+            } else {
+              setTimeout(() => {
+                router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+              }, MIN_DELAY - waited)
+            }
             return
           }
         }
 
-        // If still waiting, trigger matchmaking
-        const response = await fetch("/api/matchmaking", {
+        const res = await fetch("/api/matchmaking", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId }),
         })
 
-        if (!response.ok) {
-          throw new Error(`Matchmaking API error: ${response.status}`)
-        }
+        if (!res.ok) return
 
-        const data = await response.json()
-
+        const data = await res.json()
         if (data.status === "matched") {
-          // Found a match, redirect to the call
-          router.push(`/call/${data.callId}?room=${encodeURIComponent(data.roomUrl)}`)
-        }
-      } catch (error) {
-        // No match found yet, continue waiting
-        console.error("Error checking for match:", error)
-      }
-    }
+          setMatchFoundAt(new Date())
 
-    const interval = setInterval(checkForMatch, 3000)
+          // 🔥 Redirecionar imediatamente se já tem a chamada
+          router.push(`/call/${data.callId}?room=${encodeURIComponent(data.roomUrl)}`)
+          return
+        }
+
+      } catch (err) {
+        console.error("Erro no matchmaking:", err)
+      }
+    }, 3000)
+
     return () => clearInterval(interval)
-  }, [isInQueue, userId, router, supabase, tablesExist])
+  }, [isInQueue, userId, router, supabase, tablesExist, matchFoundAt])
 
   const joinQueue = async () => {
     if (tablesExist !== true) {
-      setError("Database tables not set up properly. Please contact support.")
+      setError("As tabelas do banco não foram configuradas.")
       return
     }
 
@@ -161,20 +125,8 @@ export default function JoinQueue({ userId }: { userId: string }) {
     setError(null)
 
     try {
-      // First, make sure the user exists in the users table
-      const { data: userData, error: userError } = await supabase.from("users").select("id").eq("id", userId).single()
-
-      if (userError) {
-        // User doesn't exist, create a basic record
-        const { error: insertError } = await supabase
-          .from("users")
-          .insert({ id: userId, name: "User", is_available: true })
-
-        if (insertError) throw insertError
-      }
-
-      // Check if user is already in an active call
-      const { data: activeCall } = await supabase
+      // Verifica chamada ativa
+      const { data: call } = await supabase
         .from("calls")
         .select("id, room_url")
         .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
@@ -183,39 +135,45 @@ export default function JoinQueue({ userId }: { userId: string }) {
         .limit(1)
         .maybeSingle()
 
-      if (activeCall) {
-        // User already in active call, redirect
-        router.push(`/call/${activeCall.id}?room=${encodeURIComponent(activeCall.room_url)}`)
+      if (call) {
+        router.push(`/call/${call.id}?room=${encodeURIComponent(call.room_url)}`)
         return
       }
 
-      // Now try to add to waiting_users
-      const { error: joinError } = await supabase.from("waiting_users").upsert({ user_id: userId })
+      // Garante usuário na tabela
+      const { error: userError } = await supabase
+        .from("users")
+        .upsert({ id: userId, name: "User", is_available: true })
 
-      if (joinError) throw joinError
+      if (userError) throw userError
 
-      // Update user availability
-      const { error: updateError } = await supabase.from("users").update({ is_available: true }).eq("id", userId)
+      // Entra na fila
+      const { error: queueError } = await supabase
+        .from("waiting_users")
+        .upsert({ user_id: userId })
 
-      if (updateError) throw updateError
+      if (queueError) throw queueError
+
+      // Marca como disponível
+      const { error: availableError } = await supabase
+        .from("users")
+        .update({ is_available: true })
+        .eq("id", userId)
+
+      if (availableError) throw availableError
 
       setIsInQueue(true)
+      setIsSearching(true)
+      setMatchFoundAt(new Date()) // começa contagem mínima
 
-      // Trigger the matchmaking function
-      try {
-        await fetch("/api/matchmaking", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ userId }),
-        })
-      } catch (fetchError) {
-        console.error("Error triggering matchmaking:", fetchError)
-        // Continue anyway, as the polling will still work
-      }
-    } catch (error: any) {
-      setError(error.message || "Error joining queue")
+      await fetch("/api/matchmaking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      })
+
+    } catch (err: any) {
+      setError(err.message || "Erro ao entrar na fila.")
       setIsInQueue(false)
     } finally {
       setIsJoining(false)
@@ -225,158 +183,41 @@ export default function JoinQueue({ userId }: { userId: string }) {
   const leaveQueue = async () => {
     setIsJoining(true)
     setError(null)
-
     try {
-      // Remove user from waiting_users table
-      const { error: leaveError } = await supabase.from("waiting_users").delete().eq("user_id", userId)
-
-      if (leaveError && !leaveError.message.includes("does not exist")) throw leaveError
-
-      // Update user availability
-      const { error: updateError } = await supabase.from("users").update({ is_available: false }).eq("id", userId)
-
-      if (updateError) throw updateError
-
+      await supabase.from("waiting_users").delete().eq("user_id", userId)
+      await supabase.from("users").update({ is_available: false }).eq("id", userId)
       setIsInQueue(false)
+      setIsSearching(false)
+      setMatchFoundAt(null)
       router.push("/home")
-    } catch (error: any) {
-      setError(error.message || "Error leaving queue")
+    } catch (err: any) {
+      setError(err.message || "Erro ao sair da fila.")
     } finally {
       setIsJoining(false)
     }
   }
 
-  // Check if user is already in queue on component mount
-  useEffect(() => {
-    const checkQueueStatus = async () => {
-      // Only check queue status if tables exist
-      if (tablesExist !== true) return
-
-      try {
-        const { data, error } = await supabase.from("waiting_users").select("*").eq("user_id", userId).maybeSingle()
-
-        // If the error is not about the table not existing
-        if (error && !error.message.includes("does not exist")) {
-          console.error("Error checking queue status:", error)
-          return
-        }
-
-        setIsInQueue(!!data)
-      } catch (error) {
-        // Only log the error if it's not related to the table not existing
-        console.error("Exception checking queue status:", error)
-      }
-    }
-
-    if (tablesExist === true) {
-      checkQueueStatus()
-    }
-  }, [userId, supabase, tablesExist])
-
-  // Show loading state while checking if tables exist
   if (tablesExist === null) {
     return (
       <div className="flex flex-col items-center justify-center">
         <WaitingAnimation />
-        <p className="text-white mt-4">Checking database setup...</p>
+        <p className="text-white mt-4">Verificando banco de dados...</p>
       </div>
     )
   }
 
-  // Show setup instructions if tables don't exist
   if (tablesExist === false) {
     return (
       <div className="flex flex-col items-center gap-6 max-w-md mx-auto">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Database Setup Required</AlertTitle>
+          <AlertTitle>Banco de dados ausente</AlertTitle>
           <AlertDescription>
-            The required database tables have not been set up yet. Please run the SQL setup script in your Supabase
-            dashboard.
+            As tabelas necessárias ainda não foram criadas. Execute o script no Supabase.
           </AlertDescription>
         </Alert>
-        <div className="bg-white p-4 rounded-md w-full">
-          <h3 className="font-bold mb-2">Required Tables:</h3>
-          <ul className="list-disc pl-5 space-y-1 text-sm">
-            <li>users</li>
-            <li>waiting_users</li>
-            <li>matches</li>
-            <li>calls</li>
-          </ul>
-          <div className="mt-4">
-            <p className="text-sm mb-2">Run this SQL in your Supabase SQL Editor:</p>
-            <pre className="bg-gray-100 p-3 rounded text-xs overflow-auto max-h-60">
-              {`-- Create a function to create tables if they don't exist
-CREATE OR REPLACE FUNCTION create_tables_if_not_exist()
-RETURNS void AS $$
-BEGIN
-  -- Create users table if it doesn't exist
-  IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users') THEN
-    CREATE TABLE public.users (
-      id UUID PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      age INT,
-      interests TEXT,
-      last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      is_available BOOLEAN DEFAULT FALSE,
-      avatar_url TEXT,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    );
-  END IF;
-
-  -- Create waiting_users table if it doesn't exist
-  IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'waiting_users') THEN
-    CREATE TABLE public.waiting_users (
-      user_id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
-      timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    );
-  END IF;
-
-  -- Create matches table if it doesn't exist
-  IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'matches') THEN
-    CREATE TABLE public.matches (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user1_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-      user2_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-      mutual BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      UNIQUE(user1_id, user2_id)
-    );
-  END IF;
-
-  -- Create calls table if it doesn't exist
-  IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'calls') THEN
-    CREATE TABLE public.calls (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      room_url TEXT NOT NULL,
-      user1_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-      user2_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-      start_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      end_time TIMESTAMP WITH TIME ZONE,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    );
-  END IF;
-
-  -- Create messages table if it doesn't exist
-  IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'messages') THEN
-    CREATE TABLE public.messages (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      match_id UUID NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
-      sender_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-      content TEXT NOT NULL,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    );
-  END IF;
-END;
-$$ LANGUAGE plpgsql;
-
--- Execute the function to create tables
-SELECT create_tables_if_not_exist();`}
-            </pre>
-          </div>
-        </div>
         <Link href="/home">
-          <Button variant="outline">Go Back Home</Button>
+          <Button variant="outline">Voltar</Button>
         </Link>
       </div>
     )
@@ -386,13 +227,14 @@ SELECT create_tables_if_not_exist();`}
     return (
       <div className="flex flex-col items-center gap-6">
         <WaitingAnimation />
+        <p className="text-white">Procurando alguém para te conectar...</p>
         <Button
           variant="outline"
           onClick={leaveQueue}
           disabled={isJoining}
           className="bg-white text-pink-600 hover:bg-gray-100"
         >
-          Cancel
+          Cancelar
         </Button>
       </div>
     )
@@ -400,16 +242,16 @@ SELECT create_tables_if_not_exist();`}
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-      <h1 className="text-3xl font-bold text-white mb-2">Ready to Meet Someone?</h1>
+      <h1 className="text-3xl font-bold text-white mb-2">Pronto para conhecer alguém?</h1>
       <p className="text-white text-opacity-80 max-w-md">
-        Click the button below to join the queue and get matched with someone for a 1-minute video call.
+        Clique no botão abaixo para entrar na fila e ser pareado com alguém para uma videochamada de 1 minuto.
       </p>
       {error && <p className="text-red-300">{error}</p>}
       <Button onClick={joinQueue} disabled={isJoining} size="lg" className="bg-white text-pink-600 hover:bg-gray-100">
-        {isJoining ? "Joining..." : "Join Queue"}
+        {isJoining ? "Juntando-se..." : "Entrar na fila"}
       </Button>
       <Button variant="ghost" onClick={() => router.push("/home")} className="text-white hover:bg-white/10">
-        Go Back
+        Voltar
       </Button>
     </div>
   )

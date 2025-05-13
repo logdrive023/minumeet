@@ -1,6 +1,7 @@
 import { createServerClient } from "@/lib/supabase/server"
 import { createDailyRoom } from "@/lib/daily"
 import { NextResponse } from "next/server"
+import { areUsersWithinPreferredDistance } from "@/lib/geo-utils"
 
 export async function POST(request: Request) {
   try {
@@ -9,14 +10,10 @@ export async function POST(request: Request) {
 
     console.log(`Matchmaking request for user: ${userId}`)
 
-    // Check if tables exist and create them if they don't
-    try {
-      await supabase.rpc("create_tables_if_not_exist")
-    } catch (error) {
-      console.error("Error creating tables:", error)
-    }
+    // Ensure required tables exist
+    await supabase.rpc("create_tables_if_not_exist")
 
-    // First, check if this user is already in an active call
+    // Check if this user is already in an active call
     const { data: userActiveCall } = await supabase
       .from("calls")
       .select("id, room_url")
@@ -27,7 +24,6 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (userActiveCall) {
-      console.log(`User ${userId} is already in active call: ${userActiveCall.id}`)
       return NextResponse.json({
         status: "matched",
         callId: userActiveCall.id,
@@ -35,131 +31,123 @@ export async function POST(request: Request) {
       })
     }
 
-    // Get users in waiting queue, excluding the current user
-    const { data: waitingUsers, error: waitingError } = await supabase
+    // Get current user preferences
+    const { data: currentUser } = await supabase
+      .from("users")
+      .select("age, min_age_preference, max_age_preference, latitude, longitude, max_distance_preference, gender_preference, relationship_goal, gender")
+      .eq("id", userId)
+      .single()
+
+    if (!currentUser) return NextResponse.json({ error: "User not found" }, { status: 400 })
+
+    // Get waiting users
+    const { data: waitingUsersRaw } = await supabase
       .from("waiting_users")
-      .select("user_id")
+      .select("user_id, locked_by, users!inner(age, min_age_preference, max_age_preference, latitude, longitude, max_distance_preference, gender_preference, relationship_goal, gender)")
       .neq("user_id", userId)
       .order("timestamp", { ascending: true })
-      .limit(1)
 
-    if (waitingError) {
-      console.error("Error getting waiting users:", waitingError)
-      return NextResponse.json({ error: "Failed to get waiting users" }, { status: 500 })
+    // Get rejections and mutual matches
+    const { data: rejections } = await supabase
+      .from("rejections")
+      .select("rejected_user_id")
+      .eq("user_id", userId)
+      .gte("expires_at", new Date().toISOString())
+
+    const { data: matches } = await supabase
+      .from("matches")
+      .select("user1_id, user2_id")
+      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+      .eq("mutual", true)
+
+    const rejectedUserIds = new Set(rejections?.map(r => r.rejected_user_id) || [])
+    const matchedUserIds = new Set(matches?.flatMap(m => [m.user1_id, m.user2_id]).filter(id => id !== userId))
+
+    const compatibleUsers = (waitingUsersRaw || []).filter(u => {
+      if (rejectedUserIds.has(u.user_id) || matchedUserIds.has(u.user_id) || u.locked_by) return false
+      const prefs = Array.isArray(u.users) ? u.users[0] : u.users
+
+      const ageOk = currentUser.age >= prefs.min_age_preference && currentUser.age <= prefs.max_age_preference
+      const distanceOk = areUsersWithinPreferredDistance(currentUser, prefs)
+      const genderOk = (currentUser.gender_preference === "all" || currentUser.gender_preference === prefs.gender) &&
+        (prefs.gender_preference === "all" || prefs.gender_preference === currentUser.gender)
+      const goalOk = currentUser.relationship_goal === prefs.relationship_goal ||
+        currentUser.relationship_goal === "friendship" || prefs.relationship_goal === "friendship"
+
+      return ageOk && distanceOk && genderOk && goalOk
+    })
+
+    if (compatibleUsers.length === 0) {
+      await supabase.from("waiting_users").upsert({ user_id: userId })
+      return NextResponse.json({ status: "waiting" })
     }
 
-    // If no other users are waiting, add this user to the queue and return
-    if (!waitingUsers || waitingUsers.length === 0) {
-      console.log(`No waiting users found for ${userId}, adding to queue`)
+    const matchedUser = compatibleUsers[0]
+    const matchedUserId = matchedUser.user_id
 
-      // Add user to waiting queue if not already there
-      const { error: joinError } = await supabase.from("waiting_users").upsert({ user_id: userId }).select()
+    // Try to lock matched user
+    const { data: lockedUser } = await supabase
+      .from("waiting_users")
+      .update({ locked_by: userId })
+      .eq("user_id", matchedUserId)
+      .is("locked_by", null)
+      .select()
+      .maybeSingle()
 
-      if (joinError) {
-        console.error("Error adding user to waiting queue:", joinError)
-        return NextResponse.json({ error: "Failed to join waiting queue" }, { status: 500 })
-      }
-
-      return NextResponse.json({ status: "waiting", message: "No match found yet" })
+    if (!lockedUser) {
+      return NextResponse.json({ status: "waiting", message: "User already locked" })
     }
 
-    const matchedUserId = waitingUsers[0].user_id
-    console.log(`Found match for ${userId}: ${matchedUserId}`)
-
-    // CRITICAL: Check if the matched user already has an active call
-    const { data: matchedUserCall } = await supabase
+    // Check if matched user already has a call
+    const { data: matchedCall } = await supabase
       .from("calls")
-      .select("id, room_url")
+      .select("id, room_url, user1_id, user2_id")
       .or(`user1_id.eq.${matchedUserId},user2_id.eq.${matchedUserId}`)
       .is("end_time", null)
-      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (matchedUserCall) {
-      console.log(`Matched user ${matchedUserId} already has an active call: ${matchedUserCall.id}`)
-
-      // Remove both users from waiting queue
+    if (matchedCall) {
       await supabase.from("waiting_users").delete().in("user_id", [userId, matchedUserId])
-
-      // Update the existing call to include this user if needed
-      if (matchedUserCall.user1_id !== userId && matchedUserCall.user2_id !== userId) {
-        await supabase.from("calls").update({ user2_id: userId }).eq("id", matchedUserCall.id).is("user2_id", null)
+      if (matchedCall.user1_id !== userId && matchedCall.user2_id !== userId) {
+        await supabase.from("calls").update({ user2_id: userId }).eq("id", matchedCall.id).is("user2_id", null)
       }
-
-      return NextResponse.json({
-        status: "matched",
-        callId: matchedUserCall.id,
-        roomUrl: matchedUserCall.room_url,
-      })
+      return NextResponse.json({ status: "matched", callId: matchedCall.id, roomUrl: matchedCall.room_url })
     }
 
-    // Create a Daily.co room
-    let roomUrl
-    try {
-      roomUrl = await createDailyRoom()
-      console.log(`Created new Daily room: ${roomUrl}`)
-    } catch (error) {
-      console.error("Error creating Daily room:", error)
-      // Fallback to a demo room URL if we can't create one
-      roomUrl = "https://v0.daily.co/hello"
-      console.log("Using fallback demo room:", roomUrl)
-    }
-
-    // Create a call record
-    const { data: call, error: callError } = await supabase
+    // Check if a call already exists between both
+    const { data: existingCall } = await supabase
       .from("calls")
-      .insert({
-        room_url: roomUrl,
-        user1_id: userId,
-        user2_id: matchedUserId,
-      })
+      .select("id, room_url")
+      .or(`(user1_id.eq.${userId},user2_id.eq.${matchedUserId}),(user1_id.eq.${matchedUserId},user2_id.eq.${userId})`)
+      .is("end_time", null)
+      .maybeSingle()
+
+    if (existingCall) {
+      return NextResponse.json({ status: "matched", callId: existingCall.id, roomUrl: existingCall.room_url })
+    }
+
+    // Create new Daily.co room and call
+    let roomUrl = ""
+    try {
+      roomUrl = await createDailyRoom(10)
+    } catch (error) {
+      console.error("Daily room creation failed:", error)
+      roomUrl = "https://v0.daily.co/fallback"
+    }
+
+    const { data: call } = await supabase
+      .from("calls")
+      .insert({ room_url: roomUrl, user1_id: userId, user2_id: matchedUserId })
       .select()
       .single()
 
-    if (callError) {
-      console.error("Error creating call:", callError)
-      return NextResponse.json({ error: "Failed to create call record" }, { status: 500 })
-    }
-
-    console.log(`Created call record: ${call.id} with room: ${roomUrl}`)
-
-    // Remove both users from the waiting queue
     await supabase.from("waiting_users").delete().in("user_id", [userId, matchedUserId])
-
-    // Update user availability
     await supabase.from("users").update({ is_available: false }).in("id", [userId, matchedUserId])
 
-    // For test users, automatically create a match
-    // Check if either user is a test user by checking if they have an auth record
-    const { data: authUsers } = await supabase.auth.admin.listUsers({
-      filters: {
-        id: {
-          in: [userId, matchedUserId].join(","),
-        },
-      },
-    })
-
-    const realUserIds = authUsers?.users.map((user) => user.id) || []
-    const isTestMatch = realUserIds.length < 2
-
-    if (isTestMatch) {
-      // For test users, automatically create a match
-      await supabase.from("matches").insert({
-        user1_id: userId,
-        user2_id: matchedUserId,
-        mutual: true,
-      })
-    }
-
-    return NextResponse.json({
-      status: "matched",
-      callId: call.id,
-      roomUrl,
-      isTestMatch,
-    })
-  } catch (error: any) {
-    console.error("Matchmaking error:", error)
-    return NextResponse.json({ error: error.message || "Failed to process matchmaking" }, { status: 500 })
+    return NextResponse.json({ status: "matched", callId: call.id, roomUrl })
+  } catch (err: any) {
+    console.error("Matchmaking error:", err)
+    return NextResponse.json({ error: err.message || "Internal matchmaking error" }, { status: 500 })
   }
 }
