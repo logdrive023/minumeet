@@ -62,6 +62,18 @@ export default function ChatLayout({ userId, matches: initialMatches }: ChatLayo
   const messageChannelRef = useRef<any>(null)
 
   useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileView(window.innerWidth <= 768)
+    }
+
+    checkMobile() // Verifica ao montar
+
+    window.addEventListener("resize", checkMobile) // Atualiza se redimensionar
+
+    return () => window.removeEventListener("resize", checkMobile)
+  }, [])
+
+  useEffect(() => {
     const fetchLastMessages = async () => {
       const updated = await Promise.all(
         matches.map(async (match) => {
@@ -389,7 +401,7 @@ export default function ChatLayout({ userId, matches: initialMatches }: ChatLayo
 
   return (
     <main className="flex h-screen bg-gray-100 overflow-hidden">
-      {/* Sidebar fixa com rolagem própria */}
+      {/* Sidebar fixa ou mobile (somente se showSidebar for true) */}
       {(showSidebar || !isMobileView) && (
         <div className={`bg-white ${isMobileView ? "w-full" : "w-80"} border-r border-gray-200 flex flex-col h-full`}>
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
@@ -426,7 +438,10 @@ export default function ChatLayout({ userId, matches: initialMatches }: ChatLayo
                     key={match.id}
                     className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${selectedMatch?.id === match.id ? "bg-pink-50" : ""
                       }`}
-                    onClick={() => handleMatchSelect(match)}
+                    onClick={() => {
+                      handleMatchSelect(match)
+                      if (isMobileView) toggleSidebar()
+                    }}
                   >
                     <Avatar className="h-12 w-12 border border-gray-200">
                       <AvatarImage src={match.user.avatar_url || undefined} alt={match.user.name} />
@@ -458,161 +473,164 @@ export default function ChatLayout({ userId, matches: initialMatches }: ChatLayo
         </div>
       )}
 
-      {/* Área do Chat */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {selectedMatch ? (
-          <>
-            {/* Cabeçalho */}
-            <div className="bg-white shadow-sm p-3 flex items-center">
-              {isMobileView && (
-                <Button variant="ghost" size="icon" onClick={toggleSidebar}>
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-              )}
-              <Avatar className="h-8 w-8 mr-2">
-                <AvatarImage src={selectedMatch.user.avatar_url || undefined} alt={selectedMatch.user.name} />
-                <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-500 text-white">
-                  {selectedMatch.user.name.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <h1 className="font-semibold">{selectedMatch.user.name}</h1>
-                <p className="text-xs text-gray-500">Conversa com seu match</p>
-              </div>
-            </div>
-
-            {/* Mensagens */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4" id="chat-scroll-container">
-              {Object.keys(groupedMessages).length === 0 ? (
-                <div className="flex items-center justify-center h-full text-gray-400">
-                  <div className="text-center">
-                    <p className="mb-2">Nenhuma mensagem ainda. Diga olá!</p>
-                    <Button variant="outline" size="sm" onClick={() => handleQuickMessage("Olá! Como vai?")}>
-                      Enviar "Olá! Como vai?"
-                    </Button>
-                  </div>
+      {/* Área do Chat (no mobile, somente se showSidebar for false) */}
+      {(!isMobileView || !showSidebar) && (
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          {selectedMatch ? (
+            <>
+              {/* Cabeçalho do chat */}
+              <div className="bg-white shadow-sm p-3 flex items-center">
+                {isMobileView && (
+                  <Button variant="ghost" size="icon" onClick={toggleSidebar}>
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                )}
+                <Avatar className="h-8 w-8 mr-2">
+                  <AvatarImage src={selectedMatch.user.avatar_url || undefined} alt={selectedMatch.user.name} />
+                  <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-500 text-white">
+                    {selectedMatch.user.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <h1 className="font-semibold">{selectedMatch.user.name}</h1>
+                  <p className="text-xs text-gray-500">Conversa com seu match</p>
                 </div>
-              ) : (
-                Object.entries(groupedMessages).map(([date, dateMessages]) => (
-                  <div key={date} className="space-y-4">
-                    <div className="flex justify-center">
-                      <div className="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full">
-                        {(() => {
-                          try {
-                            const parsed = new Date(date)
-                            return isNaN(parsed.getTime())
-                              ? format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })
-                              : format(parsed, "EEEE, d 'de' MMMM", { locale: ptBR })
-                          } catch {
-                            return format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })
-                          }
-                        })()}
-                      </div>
+              </div>
+
+              {/* Mensagens */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4" id="chat-scroll-container">
+                {Object.keys(groupedMessages).length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-gray-400">
+                    <div className="text-center">
+                      <p className="mb-2">Nenhuma mensagem ainda. Diga olá!</p>
+                      <Button variant="outline" size="sm" onClick={() => handleQuickMessage("Olá! Como vai?")}>
+                        Enviar "Olá! Como vai?"
+                      </Button>
                     </div>
-                    {dateMessages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.sender_id === userId ? "justify-end" : "justify-start"}`}
-                      >
-                        {message.sender_id !== userId && (
-                          <Avatar className="h-8 w-8 mr-2 flex-shrink-0">
-                            <AvatarImage src={selectedMatch.user.avatar_url || undefined} alt={selectedMatch.user.name} />
-                            <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-500 text-white text-xs">
-                              {selectedMatch.user.name.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                        <div
-                          className={`max-w-[70%] p-3 rounded-lg ${message.sender_id === userId
-                            ? "bg-pink-500 text-white rounded-br-none"
-                            : "bg-gray-200 text-gray-800 rounded-bl-none"
-                            }`}
-                        >
-                          {message.image_url && (
-                            <div className="mb-2">
-                              <img
-                                src={message.image_url || "/placeholder.svg"}
-                                alt="Imagem compartilhada"
-                                className="rounded-md max-w-full max-h-60 object-contain cursor-pointer"
-                                onClick={() => window.open(message.image_url, "_blank")}
-                              />
-                            </div>
-                          )}
-                          <p className="break-words">{message.content}</p>
-                          <p className="text-xs opacity-70 mt-1 text-right">
-                            {format(new Date(message.created_at), "HH:mm")}
-                          </p>
+                  </div>
+                ) : (
+                  Object.entries(groupedMessages).map(([date, dateMessages]) => (
+                    <div key={date} className="space-y-4">
+                      <div className="flex justify-center">
+                        <div className="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full">
+                          {(() => {
+                            try {
+                              const parsed = new Date(date)
+                              return isNaN(parsed.getTime())
+                                ? format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })
+                                : format(parsed, "EEEE, d 'de' MMMM", { locale: ptBR })
+                            } catch {
+                              return format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })
+                            }
+                          })()}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                ))
-              )}
+                      {dateMessages.map((message) => (
+                        <div
+                          key={message.id}
+                          className={`flex ${message.sender_id === userId ? "justify-end" : "justify-start"}`}
+                        >
+                          {message.sender_id !== userId && (
+                            <Avatar className="h-8 w-8 mr-2 flex-shrink-0">
+                              <AvatarImage src={selectedMatch.user.avatar_url || undefined} alt={selectedMatch.user.name} />
+                              <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-500 text-white text-xs">
+                                {selectedMatch.user.name.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
+                          <div
+                            className={`max-w-[70%] p-3 rounded-lg ${message.sender_id === userId
+                              ? "bg-pink-500 text-white rounded-br-none"
+                              : "bg-gray-200 text-gray-800 rounded-bl-none"
+                              }`}
+                          >
+                            {message.image_url && (
+                              <div className="mb-2">
+                                <img
+                                  src={message.image_url || "/placeholder.svg"}
+                                  alt="Imagem compartilhada"
+                                  className="rounded-md max-w-full max-h-60 object-contain cursor-pointer"
+                                  onClick={() => window.open(message.image_url, "_blank")}
+                                />
+                              </div>
+                            )}
+                            <p className="break-words">{message.content}</p>
+                            <p className="text-xs opacity-70 mt-1 text-right">
+                              {format(new Date(message.created_at), "HH:mm")}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )}
 
-              {isTyping && (
-                <div className="flex justify-start">
-                  <Avatar className="h-8 w-8 mr-2 flex-shrink-0">
-                    <AvatarImage src={selectedMatch.user.avatar_url || undefined} alt={selectedMatch.user.name} />
-                    <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-500 text-white text-xs">
-                      {selectedMatch.user.name.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="bg-gray-200 text-gray-800 p-3 rounded-lg rounded-bl-none">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                {isTyping && (
+                  <div className="flex justify-start">
+                    <Avatar className="h-8 w-8 mr-2 flex-shrink-0">
+                      <AvatarImage src={selectedMatch.user.avatar_url || undefined} alt={selectedMatch.user.name} />
+                      <AvatarFallback className="bg-gradient-to-br from-pink-400 to-purple-500 text-white text-xs">
+                        {selectedMatch.user.name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="bg-gray-200 text-gray-800 p-3 rounded-lg rounded-bl-none">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
+                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div ref={messagesEndRef} />
-            </div>
+                <div ref={messagesEndRef} />
+              </div>
 
-            {/* Formulário */}
-            <form onSubmit={sendMessage} className="p-4 bg-white border-t flex gap-2">
-              <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
-              <Button type="button" variant="ghost" size="icon" className="text-gray-500 hover:text-pink-500" onClick={handleImageClick}>
-                <ImageIcon className="h-5 w-5" />
-              </Button>
-              <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
-                <PopoverTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="text-gray-500 hover:text-pink-500">
-                    <Smile className="h-5 w-5" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-full p-0 border-none" align="start" side="top">
-                  <EmojiPicker onEmojiClick={handleEmojiClick} width="100%" height={350} />
-                </PopoverContent>
-              </Popover>
-              <Input
-                id="message-input"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Digite uma mensagem..."
-                className="flex-1"
-              />
-              <Button type="submit" disabled={loading || !newMessage.trim()}>
-                <Send className="h-4 w-4" />
-              </Button>
-            </form>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 text-center text-gray-500">
-            <div className="max-w-md">
-              <h2 className="text-xl font-semibold mb-2">Selecione uma conversa</h2>
-              <p>Escolha um match na lista para iniciar ou continuar uma conversa.</p>
-              {isMobileView && !showSidebar && (
-                <Button onClick={toggleSidebar} className="mt-4">
-                  Ver conversas
+              {/* Campo de mensagem */}
+              <form onSubmit={sendMessage} className="p-4 bg-white border-t flex gap-2">
+                <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
+                <Button type="button" variant="ghost" size="icon" className="text-gray-500 hover:text-pink-500" onClick={handleImageClick}>
+                  <ImageIcon className="h-5 w-5" />
                 </Button>
-              )}
+                <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" className="text-gray-500 hover:text-pink-500">
+                      <Smile className="h-5 w-5" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0 border-none" align="start" side="top">
+                    <EmojiPicker onEmojiClick={handleEmojiClick} width="100%" height={350} />
+                  </PopoverContent>
+                </Popover>
+                <Input
+                  id="message-input"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Digite uma mensagem..."
+                  className="flex-1"
+                />
+                <Button type="submit" disabled={loading || !newMessage.trim()}>
+                  <Send className="h-4 w-4" />
+                </Button>
+              </form>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-4 text-center text-gray-500">
+              <div className="max-w-md">
+                <h2 className="text-xl font-semibold mb-2">Selecione uma conversa</h2>
+                <p>Escolha um match na lista para iniciar ou continuar uma conversa.</p>
+                {isMobileView && !showSidebar && (
+                  <Button onClick={toggleSidebar} className="mt-4">
+                    Ver conversas
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </main>
   )
+
 
 }
