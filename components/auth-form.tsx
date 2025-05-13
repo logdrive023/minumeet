@@ -36,20 +36,6 @@ export default function AuthForm() {
   const supabase = getSupabaseClient()
   const [activeTab, setActiveTab] = useState("signin")
 
-  // Solicitar permissão de localização quando o componente for montado
-  useEffect(() => {
-    // Verificar se o navegador suporta geolocalização
-    if (navigator.geolocation) {
-      // Perguntar se o usuário deseja compartilhar sua localização
-      const askForLocation = window.confirm(
-        "Para uma melhor experiência, gostaríamos de acessar sua localização. Isso nos ajudará a encontrar matches próximos a você. Você permite?",
-      )
-
-      if (askForLocation) {
-        detectLocation()
-      }
-    }
-  }, [])
 
   const detectLocation = async () => {
     setLocationLoading(true)
