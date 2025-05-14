@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Users, Settings, Database, Camera, LogOut, Sliders } from "lucide-react"
-import SetupDbButton from "./setup-db-button"
 import CameraDebug from "@/components/camera-debug"
 import { DynamicDatingText } from "@/components/dynamic-dating-text"
+import { LogoutButton } from "@/components/logout-button"
 
 export default async function HomePage() {
   const supabase = createServerClient()
@@ -90,12 +90,9 @@ export default async function HomePage() {
           <h1 className="text-3xl font-bold text-white mb-2">Bem vindo, {userName}</h1>
           <p className="text-white text-opacity-80">Pronto para conhecer alguém novo?</p>
 
-          <Link href="/direct-login" className="absolute top-0 right-0">
-            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
-              <LogOut className="h-5 w-5" />
-              <span className="sr-only">Sair</span>
-            </Button>
-          </Link>
+          <div className="absolute top-0 right-0">
+            <LogoutButton />
+          </div>
         </div>
 
         <div className="grid gap-4">
