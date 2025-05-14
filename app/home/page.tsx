@@ -156,7 +156,7 @@ export default async function HomePage() {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <Sliders className="h-5 w-5 text-pink-500" />
-                  Configurações
+                  Config
                 </CardTitle>
                 <CardDescription>Preferências</CardDescription>
               </CardHeader>

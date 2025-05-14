@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, MouseEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
@@ -127,15 +127,81 @@ export default function VideoTimer({
     }
   }
 
+
+  // posição do card
+  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // refs para drag
+  const draggingRef = useRef(false)
+  const dragStartRef = useRef({ x: 0, y: 0 })
+  const initPosRef = useRef({ x: 0, y: 0 })
+
+  const onMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    draggingRef.current = true
+    dragStartRef.current = { x: e.clientX, y: e.clientY }
+    initPosRef.current = { ...position }
+    window.addEventListener("mousemove", onMouseMove as any)
+    window.addEventListener("mouseup", onMouseUp)
+  }
+
+  // posicionar no top-right na primeira montagem
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+    const { width } = el.getBoundingClientRect()
+    const margin = 16
+    setPosition({
+      x: window.innerWidth - width - margin,
+      y: margin,
+    })
+  }, [])
+
+  // funções de drag
+  const onMouseMove = (e: MouseEvent<Document>) => {
+    if (!draggingRef.current) return
+    const dx = e.clientX - dragStartRef.current.x
+    const dy = e.clientY - dragStartRef.current.y
+    setPosition({
+      x: initPosRef.current.x + dx,
+      y: initPosRef.current.y + dy,
+    })
+  }
+  const onMouseUp = () => {
+    draggingRef.current = false
+    window.removeEventListener("mousemove", onMouseMove as any)
+    window.removeEventListener("mouseup", onMouseUp)
+  }
+
   return (
-    <Card className="absolute top-4 right-4 bg-opacity-80 bg-black text-white">
-      <CardContent className="p-3 flex items-center gap-3">
-        <div className="text-xl font-bold">{!timerActive ? "Esperando..." : formatTime(timeLeft)}</div>
-        <Button variant="destructive" size="sm" onClick={handleEndCall}>
-          Encerrar Chamada
-        </Button>
-      </CardContent>
-    </Card>
+    <div
+      ref={cardRef}
+      style={{
+        position: "absolute",
+        left: position.x,
+        top: position.y,
+        zIndex: 50,
+      }}
+    >
+      <Card className="bg-black bg-opacity-80 text-white">
+        <CardContent className="p-3 flex items-center justify-between">
+          {/* apenas este DIV inicia o drag */}
+          <div
+            onMouseDown={onMouseDown}
+            className="cursor-move select-none text-xl font-bold"
+            title="Segure e arraste"
+          >
+            {!timerActive ? "Esperando..." : formatTime(timeLeft)}
+          </div>
+
+          {/* botão normal, sem drag */}
+          <Button type="button" variant="destructive" size="sm" onClick={handleEndCall}>
+            Encerrar Chamada
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 

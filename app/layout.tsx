@@ -2,7 +2,7 @@ import type React from "react"
 import "./globals.css"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
-import { HtmlWrapper } from "@/components/html-wrapper"
+import LoadingProvider from "@/components/loading-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -20,7 +20,9 @@ export default function RootLayout({
     <html>
       <body className={`${inter.className} light`} style={{ colorScheme: "light" }}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+          <LoadingProvider>
           {children}
+          </LoadingProvider>
         </ThemeProvider>
       </body>
     </html>
