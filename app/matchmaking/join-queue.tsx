@@ -16,6 +16,10 @@ export default function JoinQueue({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [tablesExist, setTablesExist] = useState<boolean | null>(null)
   const [matchFoundAt, setMatchFoundAt] = useState<Date | null>(null)
+  const [limitReached, setLimitReached] = useState(false)
+  const [limitMessage, setLimitMessage] = useState("")
+  const [plan, setPlan] = useState("free")
+  const [maxCalls, setMaxCalls] = useState(10)
   const router = useRouter()
   const supabase = getSupabaseClient()
 
@@ -122,6 +126,7 @@ export default function JoinQueue({ userId }: { userId: string }) {
     }
 
     setIsJoining(true)
+    setLimitReached(false)
     setError(null)
 
     try {
@@ -166,11 +171,22 @@ export default function JoinQueue({ userId }: { userId: string }) {
       setIsSearching(true)
       setMatchFoundAt(new Date()) // começa contagem mínima
 
-      await fetch("/api/matchmaking", {
+      const response = await fetch("/api/matchmaking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
       })
+
+      const data = await response.json()
+
+      if (response.status === 403 && data.status === "limit_reached") {
+        setLimitReached(true)
+        setLimitMessage(data.message || "Limite diário de chamadas atingido")
+        setPlan(data.plan || "free")
+        setMaxCalls(data.max || 10)
+        setIsSearching(false)    // para o spinner de busca
+        return
+      }
 
     } catch (err: any) {
       setError(err.message || "Erro ao entrar na fila.")

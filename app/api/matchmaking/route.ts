@@ -1,14 +1,39 @@
 import { createServerClient } from "@/lib/supabase/server"
 import { createDailyRoom } from "@/lib/daily"
 import { NextResponse } from "next/server"
+import { cookies } from "next/headers"
 import { areUsersWithinPreferredDistance } from "@/lib/geo-utils"
 
 export async function POST(request: Request) {
   try {
     const { userId } = await request.json()
+    const cookieStore = cookies()
     const supabase = createServerClient()
 
     console.log(`Matchmaking request for user: ${userId}`)
+
+    // Check call limits before proceeding
+    const limitCheckResponse = await fetch(new URL("/api/call-limits/log", request.url), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: cookieStore.toString(),
+      },
+    })
+
+    const limitCheckData = await limitCheckResponse.json()
+
+    if (!limitCheckResponse.ok || !limitCheckData.allowed) {
+      return NextResponse.json(
+        {
+          status: "limit_reached",
+          message: limitCheckData.message || "Limite diário de chamadas atingido",
+          plan: limitCheckData.plan || "free",
+          max: limitCheckData.max || 10,
+        },
+        { status: 403 },
+      )
+    }
 
     // Ensure required tables exist
     await supabase.rpc("create_tables_if_not_exist")

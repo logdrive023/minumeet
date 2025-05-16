@@ -3,10 +3,12 @@ import { redirect } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Users, Settings, Database, Camera, LogOut, Sliders } from "lucide-react"
+import { Users, Settings, Database, Camera, LogOut, Sliders, CreditCard } from "lucide-react"
 import CameraDebug from "@/components/camera-debug"
 import { DynamicDatingText } from "@/components/dynamic-dating-text"
 import { LogoutButton } from "@/components/logout-button"
+import { SubscriptionCarousel } from "@/components/subscripton-carousel"
+import RemainingCallsDisplay from "@/components/remaining-calls-display"
 
 export default async function HomePage() {
   const supabase = createServerClient()
@@ -129,6 +131,22 @@ export default async function HomePage() {
                 </Button>
               </Link>
             </CardFooter>
+          </Card>
+
+          <RemainingCallsDisplay />
+
+          {/* Novo Card de Planos de Assinatura */}
+          <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <CreditCard className="h-5 w-5 text-pink-500" />
+                Meu Plano
+              </CardTitle>
+              <CardDescription>Escolha o plano ideal para você</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0 pb-4">
+              <SubscriptionCarousel />
+            </CardContent>
           </Card>
 
           <div className="grid grid-cols-2 gap-4">
