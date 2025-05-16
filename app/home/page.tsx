@@ -88,14 +88,20 @@ export default async function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center p-4 bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-600">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8 mt-8 relative">
-          <h1 className="text-3xl font-bold text-white mb-2">Bem vindo, {userName}</h1>
-          <p className="text-white text-opacity-80">Pronto para conhecer alguém novo?</p>
+        <div className="text-center py-6 relative">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1">
+            Bem vindo, {userName}
+          </h1>
+          <p className="text-base sm:text-lg text-white text-opacity-80">
+            Pronto para conhecer alguém novo?
+            <div className="top-4 right-4">
+              <LogoutButton />
+            </div>
+          </p>
 
-          <div className="absolute top-0 right-0">
-            <LogoutButton />
-          </div>
+
         </div>
+
 
         <div className="grid gap-4">
           <Card className="border-none shadow-lg hover:shadow-xl transition-all duration-300">

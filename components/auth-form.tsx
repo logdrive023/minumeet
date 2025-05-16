@@ -213,7 +213,7 @@ export default function AuthForm() {
 
       if (error) throw error
 
-      setSuccess("Login successful! Redirecting...")
+      setSuccess("Login efetuado com sucesso! Redirecionando...")
 
       // Force a hard navigation to /home
       window.location.href = "/home"
