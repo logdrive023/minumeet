@@ -56,12 +56,14 @@ export async function signUp(prevState: any, formData: FormData) {
     },
   })
 
-  const { error } = await supabase.auth.signUp({
+  const { data,error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
         name,
+        email, // Duplicar email nos metadados
+        subscription_plan: "free", // Definir plano gratuito por padrão
       },
     },
   })
