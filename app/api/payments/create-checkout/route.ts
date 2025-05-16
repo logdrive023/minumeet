@@ -54,8 +54,6 @@ export async function POST(request: Request) {
     // Criar um ID de referência único para esta transação
     const referenceId = `${user.id}_${planId}_${Date.now()}`
 
-    const testBuyerId = process.env.MP_TEST_BUYER_ID || "123456789";
-
 
     // Configurar os dados do pagamento
     const paymentData = {
