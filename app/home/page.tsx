@@ -142,7 +142,7 @@ export default async function HomePage() {
                 <CreditCard className="h-5 w-5 text-pink-500" />
                 Meu Plano
               </CardTitle>
-              <CardDescription>Escolha o plano ideal para você</CardDescription>
+              <CardDescription>👉 Escolha o plano ideal para você</CardDescription>
             </CardHeader>
             <CardContent className="pt-0 pb-4">
               <SubscriptionCarousel />
